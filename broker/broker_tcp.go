@@ -1,4 +1,4 @@
-package broker_tcp
+package broker
 
 import (
 	"fmt"
@@ -7,17 +7,17 @@ import (
 	client "pad/client"
 )
 
-type Broker struct {
+type BrokerTCP struct {
 	ip      net.IP
 	port    string
-	clients map[string]client.Client
+	clients map[string]client.ClientTCP
 }
 
-func (b Broker) Open() {
+func (b BrokerTCP) Open() {
 	fmt.Println("it's a struct")
 }
 
-func (b Broker) Close() {
+func (b BrokerTCP) Close() {
 	fmt.Println("it's a struct")
 }
 

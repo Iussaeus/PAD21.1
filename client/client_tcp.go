@@ -1,21 +1,21 @@
-package client_tcp
+package client
 
 import (
 	"net"
 )
 
-type Client struct {
+type ClientTCP struct {
 	ip   net.IP
 	name string
 }
 
-func (c *Client) Start() {}
+func (c *ClientTCP) Start() {}
 
-func (c *Client) Connect() {}
+func (c *ClientTCP) Connect() {}
 
-func (c *Client) Disconnect() {}
+func (c *ClientTCP) Disconnect() {}
 
-func (c *Client) SendMessage(receiver string, msg string) {} 
+func (c *ClientTCP) SendMessage(receiver string, msg string) {} 
 
 func main() {
 }
