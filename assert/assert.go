@@ -1,4 +1,4 @@
-package main
+package assert 
 
 import "fmt"
 
@@ -9,5 +9,3 @@ func Assert(truthy bool, msg string) error {
 
 	return nil
 }
-
-func main() {}
