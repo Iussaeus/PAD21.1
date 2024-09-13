@@ -7,15 +7,10 @@ import (
 	client "pad/client"
 )
 
-type Server interface {
-	Open() error
-	Close() error
-}
-
 type Broker struct {
 	ip      net.IP
 	port    string
-	clients []client.Client
+	clients map[string]client.Client
 }
 
 func (b Broker) Open() {

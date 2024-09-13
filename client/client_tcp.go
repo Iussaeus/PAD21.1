@@ -5,10 +5,17 @@ import (
 )
 
 type Client struct {
-	ip net.IP
+	ip   net.IP
 	name string
 }
 
+func (c *Client) Start() {}
+
+func (c *Client) Connect() {}
+
+func (c *Client) Disconnect() {}
+
+func (c *Client) SendMessage(receiver string, msg string) {} 
+
 func main() {
 }
-
