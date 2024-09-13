@@ -1,6 +1,8 @@
-package assert 
+package assert
 
-import "fmt"
+import (
+	"fmt"
+)
 
 func Assert(truthy bool, msg string) error {
 	if !truthy {

@@ -1,32 +1,75 @@
 package broker
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"net"
-	client "pad/client"
 )
 
+// TODO: persistent data storage
+// TODO: change the way the clients are stored
+// actually store the clients
+
 type BrokerTCP struct {
-	ip      net.IP
-	port    string
-	clients map[string]client.ClientTCP
+	listen  net.Listener
+	clients map[string]net.Conn
+	reader  bufio.Reader
+	writer  bufio.Writer
 }
 
-func (b BrokerTCP) Open() {
-	fmt.Println("it's a struct")
-}
+// TODO: make it deploy worthy
 
-func (b BrokerTCP) Close() {
-	fmt.Println("it's a struct")
-}
-
-func openConn() {
-	port := ":8080"
-	l, err := net.Listen("tcp", "0.0.0.0"+port)
-
-	if err != nil {
-		log.Fatal(err)
+func (b *BrokerTCP) Open(port string) {
+	if port == "" {
+		port = "8080"
 	}
-	l.Close()
+
+	listen, err := net.Listen("tcp", "0.0.0.0:"+port)
+	if err != nil {
+		log.Fatalf("Broker failed to listen: %v", err)
+	}
+
+	b.listen = listen
+
+}
+
+// TODO: JSON serialization  
+// TODO:Subscriber/publsher stuff
+// TODO:Depending on the type of the message it should call different funcs 
+// like if it is a subscribe message is it should subcribe the subscirebee to a topic
+
+func (b *BrokerTCP) Serve() {
+	go func() {
+		for {
+			conn, err := b.listen.Accept()
+			if err != nil {
+				log.Fatalf("Listener failed to connect: %v", err)
+			}
+
+			buffer := make([]byte, 1024)
+
+			_, err = conn.Read(buffer)
+			fmt.Printf("\nServer got msg: %s\n\t", string(buffer))
+
+			response := fmt.Sprintf("Server sent the message back: %s\n", string(buffer))
+			conn.Write([]byte(response))
+
+			conn.Close()
+		}
+	}()
+}
+
+func (b *BrokerTCP) Close() {
+	b.listen.Close()
+}
+
+func main() {
+	fmt.Println("started the server")
+	b := BrokerTCP{}
+
+	b.Open("")
+	b.Serve()
+
+	fmt.Println("ended server")
 }
