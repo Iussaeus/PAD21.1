@@ -1,11 +1,11 @@
-package client
+package clientTcp
 
 import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"net"
 	"log"
+	"net"
 )
 
 // NOTE: maybe make a helper module for colored prints
@@ -25,7 +25,7 @@ type MessageType uint8
 
 const (
 	Unicast = iota
-	Multicast 
+	Multicast
 )
 
 // TODO: use bufio properly
@@ -41,10 +41,10 @@ type ClientTCP struct {
 // TODO: message queue
 
 type Message struct {
-	Sender ClientTCP
-	Receiver string
+	Sender      ClientTCP
+	Receiver    string
 	MessageType MessageType
-	Content string
+	Content     string
 }
 
 func (c *ClientTCP) Start() {
@@ -87,7 +87,7 @@ func (c *ClientTCP) SendMessage(receiver string, msg string) error {
 	return nil
 }
 
-func main() {
+func Run() {
 	fmt.Println("Started Client from main")
 	c := ClientTCP{
 		Name: "Test",

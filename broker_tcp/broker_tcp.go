@@ -1,4 +1,4 @@
-package broker
+package brokerTcp 
 
 import (
 	"bufio"
@@ -21,7 +21,7 @@ type BrokerTCP struct {
 // TODO: make it deploy worthy
 
 func (b *BrokerTCP) Open(port string) {
-	if port == "" {
+	if port == ""  {
 		port = "8080"
 	}
 
@@ -88,9 +88,8 @@ func (b *BrokerTCP) Close() {
 	b.listen.Close()
 }
 
-func main() {
+func Run() {
 	b := BrokerTCP{}
-
 	b.Open("")
 	b.Serve()
 }
