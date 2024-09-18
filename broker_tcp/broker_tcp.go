@@ -1,10 +1,11 @@
-package brokerTcp 
+package brokerTcp
 
 import (
 	"bufio"
 	"fmt"
 	"log"
 	"net"
+	"pad/helpers"
 )
 
 // TODO: persistent data storage
@@ -49,6 +50,7 @@ func (b *BrokerTCP) Serve() {
 		}
 
 		b.reader = *bufio.NewReader(conn)
+		helpers.CPrintf(helpers.Blue, "Reader: %v", b.reader)
 		b.writer = *bufio.NewWriter(conn)
 
 		scanner := bufio.NewScanner(conn)

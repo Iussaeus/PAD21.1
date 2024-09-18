@@ -1,7 +1,9 @@
 package brokerGrpc
 
-import "fmt"
+import (
+	"pad/helpers"
+)
 
 func Run() {
-	fmt.Println("Running grpc broker")
+	helpers.CPrintf(helpers.Red, "Hey %s", "Mega LOSER")
 }

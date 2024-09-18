@@ -1,7 +1,9 @@
 package clientGrpc
 
-import "fmt"
+import (
+	"pad/helpers"
+)
 
 func Run() {
-	fmt.Println("Running grpc client")
+	helpers.CPrintf(helpers.Blue, "Hey %s", "Loser")
 }
