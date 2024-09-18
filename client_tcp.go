@@ -55,7 +55,7 @@ func (c *ClientTCP) Start() {
 	c.tcpServer = tcpServer
 }
 
-// TODO: send the marshallizer data
+// TODO: send the marshallized data
 
 func (c *ClientTCP) SendMessage(receiver string, msg string) error {
 	if c.tcpServer == nil {
@@ -83,8 +83,6 @@ func (c *ClientTCP) SendMessage(receiver string, msg string) error {
 	}
 
 	_, err = conn.Write([]byte(fmt.Sprintf("\nTest message: %s\nfrom: %s", msg, c.Name)))
-
-	conn.Close()
 
 	return nil
 }
