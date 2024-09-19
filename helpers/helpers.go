@@ -29,5 +29,5 @@ func Assert(truthy bool, msg string) error {
 }
 
 func CPrintf(c Color, format string, a interface{}) {
-	fmt.Fprintf(os.Stdout, string(c)+format+string(Reset), a)
+	fmt.Fprintf(os.Stdout,string(c)+format+string(Reset), a)
 }
