@@ -28,6 +28,11 @@ func Assert(truthy bool, msg string) error {
 	return nil
 }
 
-func CPrintf(c Color, format string, a interface{}) {
-	fmt.Fprintf(os.Stdout,string(c)+format+string(Reset), a)
+// Colored printf, if a is empty acts like println
+func CPrintf(c Color, format string, a ...interface{}) {
+	if a == nil {
+		fmt.Fprintln(os.Stdout, string(c)+format+string(Reset))
+	} else {
+		fmt.Fprintf(os.Stdout, string(c)+format+string(Reset), a)
+	}
 }

@@ -1,27 +1,21 @@
-package message_tcp
+package broker_tcp
 
-import (
-)
+import "pad/client_tcp"
 
-type Client interface{
-	SendMessage(receiver string, message string)
-	ReadMessage()
-	Connect()
-	Disconnect()
-}
+// TODO: move the message and the message type to their own module
+// TODO: message queue
 
 type MessageType uint8
 
 const (
 	Unicast MessageType = iota
 	Multicast
+	Subscribe
+	Unsubscribe
 )
 
-// TODO: move the message and the message type to their own module
-// TODO: message queue
-
 type Message struct {
-	Sender      Client
+	Sender      clientTcp.ClientTCP
 	Receiver    string
 	MessageType MessageType
 	Payload     string
@@ -31,7 +25,7 @@ type Topic string
 
 // topics contain a map of the topics and the subsribers
 type MessageQueue struct {
-	Topics         map[Topic][]Client
+	Topics         map[Topic][]clientTcp.ClientTCP
 	QueuedMessages []Message
 }
 
