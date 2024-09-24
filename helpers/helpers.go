@@ -3,9 +3,8 @@ package helpers
 import (
 	"fmt"
 	"os"
+	"sync"
 )
-
-// NOTE: maybe make a helper module for colored prints
 
 type Color string
 
@@ -29,10 +28,23 @@ func Assert(truthy bool, msg string) error {
 }
 
 // Colored printf, if a is empty acts like println
-func CPrintf(c Color, format string, a ...interface{}) {
+func CPrintf(c Color, format string, a ...any) {
 	if a == nil {
 		fmt.Fprintln(os.Stdout, string(c)+format+string(Reset))
 	} else {
-		fmt.Fprintf(os.Stdout, string(c)+format+string(Reset), a)
+		fmt.Fprintf(os.Stdout, string(c)+format+string(Reset), a...)
 	}
+}
+
+func Wait(wg *sync.WaitGroup, funcs ...func()) {
+	wg.Add(len(funcs))
+
+	for _, f := range funcs {
+		go func() {
+			defer wg.Done()
+			f()
+		}()
+	}
+
+	wg.Wait()
 }

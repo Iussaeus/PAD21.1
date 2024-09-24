@@ -2,6 +2,9 @@ module pad
 
 go 1.23.0
 
+replace broker => ./broker/broker
+replace client => ./client/client
+
 replace broker_tcp => ./broker_tcp/broker_tcp
 replace client_tcp => ./client_tcp/client_tcp
 replace message_tcp => ./message_tcp/message_tcp

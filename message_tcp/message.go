@@ -1,44 +1,59 @@
 package message_tcp
 
-import (
-)
+type MessageType uint8
 
-type Client interface{
-	SendMessage(receiver string, message string)
+type Client interface {
+	SendMessage(msg Message)
 	ReadMessage()
 	Connect()
 	Disconnect()
 }
 
-type MessageType uint8
-
 const (
 	Unicast MessageType = iota
 	Multicast
+	Subscribtion
+	Publication
 )
 
-// TODO: move the message and the message type to their own module
-// TODO: message queue
-
 type Message struct {
-	Sender      Client
-	Receiver    string
-	MessageType MessageType
-	Payload     string
+	Sender   string      `json:"sender"`
+	Type     MessageType `json:"type"`
+	Topic    Topic       `json:"topic"`
+	Cmd      Command     `json:"command"`
+	Receiver string      `json:"receiver"`
+	Payload  string      `json:"payload"`
+}
+
+type Command string
+
+const (
+	Publish     = "publish"
+	Subscribe   = "subscribe"
+	Unsubscribe = "unsubscribe"
+)
+func (m *Message) IsEmpty() bool {
+	return *m == Message{}
 }
 
 type Topic string
 
-// topics contain a map of the topics and the subsribers
+const Global Topic = "Global"
+
 type MessageQueue struct {
-	Topics         map[Topic][]Client
-	QueuedMessages []Message
+	queuedMessages chan Message
 }
 
-func (mq *MessageQueue) Queue(m Message) error {
-	return nil
+func NewMessageQueue() *MessageQueue {
+	return &MessageQueue{
+		queuedMessages: make(chan Message),
+	}
 }
 
-func (mq *MessageQueue) Dequeue(m Message) error {
-	return nil
+func (mq *MessageQueue) Queue(m Message) {
+	mq.queuedMessages <- m
+}
+
+func (mq *MessageQueue) Dequeue() Message {
+	return <-mq.queuedMessages
 }
