@@ -5,18 +5,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
-	"pad/helpers"
-	"pad/message_tcp"
+	"os"
+	"os/signal"
 	"sync"
 	"time"
+
+	"pad/helpers"
+	"pad/message_tcp"
 )
 
-var _ message_tcp.Client = (*ClientTCP)(nil)
-
 type ClientTCP struct {
-	Name   string              `json:"name"`
+	Name   string `json:"name"`
 	conn   net.Conn
 	r      *bufio.Reader
 	w      *bufio.Writer
@@ -26,7 +28,7 @@ type ClientTCP struct {
 	cancel context.CancelFunc
 }
 
-func NewClientTCP(name string, topics []message_tcp.Topic) *ClientTCP {
+func NewClientTCP(name string) *ClientTCP {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &ClientTCP{
 		Name:   name,
@@ -37,10 +39,13 @@ func NewClientTCP(name string, topics []message_tcp.Topic) *ClientTCP {
 	}
 }
 
-func (c *ClientTCP) Connect() {
-	conn, err := net.Dial("tcp", "localhost:12345")
+func (c *ClientTCP) Connect(port string) {
+	if port == "" {
+		port = "12345"
+	}
+	conn, err := net.Dial("tcp", ":"+port)
 	if err != nil {
-		log.Printf("Failed to connect client: %s", err)
+		log.Fatalf("Failed to connect client: %s\n", err)
 	}
 
 	c.conn = conn
@@ -83,7 +88,7 @@ func (c *ClientTCP) Disconnect() {
 	if c.conn != nil {
 		err := c.conn.Close()
 		if err != nil {
-			log.Printf("Err while closing connection: %v", err)
+			log.Printf("Err while closing connection: %v\n", err)
 		}
 		c.conn = nil
 	}
@@ -93,7 +98,7 @@ func (c *ClientTCP) Disconnect() {
 	if c.w != nil {
 		err := c.w.Flush()
 		if err != nil {
-			log.Printf("Err while flushing while closing connection: %v", err)
+			log.Printf("Err while flushing while closing connection: %v\n", err)
 		}
 		c.w = nil
 	}
@@ -103,121 +108,201 @@ func (c *ClientTCP) Disconnect() {
 	c = nil
 }
 
-func (c *ClientTCP) SendString(m string) {
+func (c *ClientTCP) SendMessage(m message_tcp.Message) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	_, err := c.w.WriteString(m + "\n")
-	if err != nil {
-		log.Printf("Writer failed: %v", err)
-		return
-	}
-
-	err = c.w.Flush()
-	if err != nil {
-		log.Printf("writer failed to flush: %v", err)
-		return
-	}
-}
-
-func (c *ClientTCP) SendMessage(m message_tcp.Message) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
 	if c.w == nil {
-		log.Println("Reader is nil")
-		return
+		return fmt.Errorf("Reader is nil")
 	}
 
-	js, err := json.Marshal(m)
+	b, err := json.Marshal(m)
 	if err != nil {
-		log.Printf("Failed to marshall: %v", err)
+		return err
 	}
 
-	_, err = c.w.Write(append(js, '\n'))
+	_, err = c.w.Write(append(b, '\n'))
 	if err != nil {
-		log.Printf("Writer failed: %v", err)
-		return
+		return err
 	}
 
 	err = c.w.Flush()
 	if err != nil {
-		log.Printf("writer failed to flush: %v", err)
-		return
+		return err
 	}
+
+	return nil
 }
 
-func (c *ClientTCP) ReadMessage() {
-	// fmt.Println("Reading")
-	if c.r == nil {
-		log.Println("Reader is nil")
-		return
+func (c *ClientTCP) Publish(p string, t message_tcp.Topic) {
+	m := message_tcp.Message{
+		Sender:  c.Name,
+		Cmd:     message_tcp.Publish,
+		Topic:   t,
+		Payload: p,
 	}
-	c.wg.Add(1)
-	defer c.wg.Done()
+
+	c.SendMessage(m)
+}
+
+func (c *ClientTCP) Subscribe(t message_tcp.Topic) {
+	m := message_tcp.Message{
+		Sender:  c.Name,
+		Cmd:     message_tcp.Subscribe,
+		Topic:   t,
+		Payload: "",
+	}
+
+	c.SendMessage(m)
+}
+func (c *ClientTCP) Unsubscribe(t message_tcp.Topic) {
+	m := message_tcp.Message{
+		Sender:  c.Name,
+		Cmd:     message_tcp.Subscribe,
+		Topic:   t,
+		Payload: "",
+	}
+
+	c.SendMessage(m)
+}
+
+func (c *ClientTCP) NewTopic(t message_tcp.Topic) {
+	m := message_tcp.Message{
+		Sender:  c.Name,
+		Cmd:     message_tcp.NewTopic,
+		Topic:   t,
+		Payload: "",
+	}
+
+	c.SendMessage(m)
+}
+
+func (c *ClientTCP) DeleteTopic(t message_tcp.Topic) {
+	m := message_tcp.Message{
+		Sender:  c.Name,
+		Cmd:     message_tcp.DeleteTopic,
+		Topic:   t,
+		Payload: "",
+	}
+
+	c.SendMessage(m)
+}
+
+func (c *ClientTCP) Topics() {
+	m := message_tcp.Message{
+		Sender:  c.Name,
+		Cmd:     message_tcp.Topics,
+		Topic:   message_tcp.Empty,
+		Payload: "",
+	}
+
+	c.SendMessage(m)
+}
+
+func (c *ClientTCP) ReadMessage() error {
+	if c.r == nil {
+		return fmt.Errorf("Reader is nil\n")
+	}
 
 	s, err := c.r.ReadString('\n')
-	if err != nil {
-		log.Printf("Reader failed: %v", err)
-		return
+
+	if err == net.ErrClosed {
+		return err
+	} else if err != nil {
+		return err
 	}
 
-	if s != "" {
-		fmt.Println("Got message", s)
+	if s == "" {
+		return fmt.Errorf("Received empty message\n")
 	}
-	// fmt.Println("Done Reading")
+
+	m := message_tcp.Message{}
+	err = json.Unmarshal([]byte(s), &m)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("%s got message: %s\n", c.Name, m)
+	return nil
 }
 
-func Run(name string) {
-	fmt.Println("Started Client from main")
-	top := []message_tcp.Topic{"a", "b", "c"}
-	c := NewClientTCP(name, top)
-	c.Connect()
+// TODO: make it a cli, that  can be connected untill it receives a message
+// TODO: or untill it sends one and gets receives a confirmation
+// TODO: make a function to send message to another client for testing purposes
+// with a time and topic as params
 
-	receiver := ""
+func Run(name string, port string) {
+	fmt.Println("Started Client main")
+	c := NewClientTCP(name)
+	c.Connect(port)
 
-	if name == "Test1" {
-		receiver = "Test2"
-	} else {
-		receiver = "Test1"
-	}
+	// t := time.After(10 * time.Second)
 
-	t := time.After(3 * time.Second)
+	// msg := message_tcp.Message{
+	// 	Sender:  c.Name,
+	// 	Cmd:     message_tcp.Publish,
+	// 	Topic:   message_tcp.Global,
+	// 	Payload: "I hate you",
+	// }
 
-	msg := message_tcp.Message{
-		Sender:   c.Name,
-		Type:     message_tcp.Publication,
-		Topic:    top[0],
-		Cmd:      message_tcp.Publish,
-		Receiver: receiver,
-		Payload:  "I hate you",
-	}
-
+	s := make(chan os.Signal, 1)
+	signal.Notify(s, os.Interrupt)
 	go func() {
-		for {
-			c.ReadMessage()
-			select {
-			case <-c.ctx.Done():
-				return
-			default:
-				c.wg.Wait()
-			}
-		}
+		<-s
+		fmt.Println("\nend of client from main")
+		os.Exit(0)
 	}()
 
-	go c.SendMessage(msg)
-cycle:
-	for {
+	wg := sync.WaitGroup{}
 
-		select {
-		case <-t:
-			helpers.CPrintf(helpers.Red, "End of execution")
-			c.Disconnect()
-			c.wg.Wait()
-			break cycle
-		default:
-			time.Sleep(time.Millisecond * 100)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.Topics()
+	}()
+	wg.Wait()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(time.Second)
+		c.NewTopic("dsa")
+	}()
+	wg.Wait()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.Subscribe("dsa")
+	}()
+	wg.Wait()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.Publish("I am right", "dsa")
+	}()
+	wg.Wait()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.Unsubscribe("dsa")
+	}()
+	wg.Wait()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c.DeleteTopic("dsa")
+	}()
+	wg.Wait()
+
+	for {
+		if err := c.ReadMessage(); err == io.EOF {
+			os.Exit(1)
+		} else if err != nil {
+			os.Exit(1)
 		}
 	}
-
-	fmt.Println("end of client from main")
 }

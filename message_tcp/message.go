@@ -1,59 +1,69 @@
 package message_tcp
 
+import "fmt"
+
 type MessageType uint8
 
 type Client interface {
-	SendMessage(msg Message)
-	ReadMessage()
-	Connect()
-	Disconnect()
-}
-
-const (
-	Unicast MessageType = iota
-	Multicast
-	Subscribtion
-	Publication
-)
-
-type Message struct {
-	Sender   string      `json:"sender"`
-	Type     MessageType `json:"type"`
-	Topic    Topic       `json:"topic"`
-	Cmd      Command     `json:"command"`
-	Receiver string      `json:"receiver"`
-	Payload  string      `json:"payload"`
+	Connect(port string)
+	Disconnect() error
+	SendMessage(m Message) error
+	ReadMessage() error
 }
 
 type Command string
 
 const (
-	Publish     = "publish"
-	Subscribe   = "subscribe"
-	Unsubscribe = "unsubscribe"
+	Publish     Command = "publish"
+	Subscribe   Command = "subscribe"
+	Unsubscribe Command = "unsubscribe"
+	Topics      Command = "topics"
+	NewTopic    Command = "newTopic"
+	DeleteTopic Command = "delete"
 )
-func (m *Message) IsEmpty() bool {
-	return *m == Message{}
+
+type Message struct {
+	Sender  string  `json:"sender"`
+	Cmd     Command `json:"command"`
+	Topic   Topic   `json:"topic"`
+	Payload string  `json:"payload"`
+}
+
+func (m Message) String() string {
+	return fmt.Sprintf("Sender: %s, Cmd: %s, Topic: %s, Payload: %s", m.Sender, m.Cmd, m.Topic, m.Payload)
+}
+
+func (m Message) IsEmpty() bool {
+	return m == Message{}
 }
 
 type Topic string
 
-const Global Topic = "Global"
+const (
+	Global    Topic = "global"
+	Empty     Topic = "empty"
+	AllTopics Topic = "topics"
+)
 
 type MessageQueue struct {
-	queuedMessages chan Message
+	Ch chan *Message
 }
 
 func NewMessageQueue() *MessageQueue {
 	return &MessageQueue{
-		queuedMessages: make(chan Message),
+		Ch: make(chan *Message),
 	}
 }
 
-func (mq *MessageQueue) Queue(m Message) {
-	mq.queuedMessages <- m
+func (mq *MessageQueue) Queue(m *Message) {
+	mq.Ch <- m
 }
 
-func (mq *MessageQueue) Dequeue() Message {
-	return <-mq.queuedMessages
+func (mq *MessageQueue) Dequeue() (*Message, bool) {
+	msg, ok := <-mq.Ch
+	return msg, ok 
+}
+
+func (mq *MessageQueue) Close() {
+	close(mq.Ch)
 }

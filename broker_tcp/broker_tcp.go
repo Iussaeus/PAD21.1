@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"slices"
 	"sync"
 
 	"pad/broker"
-	"pad/client_tcp"
 	"pad/helpers"
 	"pad/message_tcp"
 )
@@ -22,29 +22,59 @@ import (
 var _ broker.Broker = (*BrokerTCP)(nil)
 
 // mq is a client queue
+type ClientData struct {
+	Name string
+}
+
 type ClientBuf struct {
-	Client *client_tcp.ClientTCP
+	name   string
 	reader *bufio.Reader
 	writer *bufio.Writer
 	mq     *message_tcp.MessageQueue
-	topics []message_tcp.Topic
 	conn   net.Conn
+}
+
+func NewClientBuf(conn net.Conn) *ClientBuf {
+	return &ClientBuf{
+		conn:   conn,
+		reader: bufio.NewReader(conn),
+		writer: bufio.NewWriter(conn),
+		mq:     message_tcp.NewMessageQueue(),
+	}
 }
 
 func (cb *ClientBuf) String() string {
 	return fmt.Sprintf("ClientBuf: conn=%v, r=%p, w=%p", cb.conn, cb.reader, cb.writer)
 }
 
+// TODO: *map[topic][]*client
 // mq is a global message queue
 type BrokerTCP struct {
-	listen  net.Listener
+	listen net.Listener
+	// all connected clients
 	clients []*ClientBuf
-	mq      *message_tcp.MessageQueue
-	mu      *sync.Mutex
-	wg      *sync.WaitGroup
+	// clients that are subscribed to a particular topic
+	topics map[message_tcp.Topic][]*ClientBuf
+	mq     *message_tcp.MessageQueue
+	mu     *sync.Mutex
+	wg     *sync.WaitGroup
 }
 
-func (b *BrokerTCP) Open(port string) {
+func (b *BrokerTCP) String() string {
+	return fmt.Sprintf("Client: %s Topics:%s", b.clients, b.topics)
+}
+
+func NewBrokerTCP() *BrokerTCP {
+	return &BrokerTCP{
+		mu:      &sync.Mutex{},
+		wg:      &sync.WaitGroup{},
+		mq:      message_tcp.NewMessageQueue(),
+		clients: []*ClientBuf{},
+		topics:  make(map[message_tcp.Topic][]*ClientBuf),
+	}
+}
+
+func (b *BrokerTCP) Init(port string) {
 	if port == "" {
 		port = "12345"
 	}
@@ -55,41 +85,23 @@ func (b *BrokerTCP) Open(port string) {
 	}
 
 	b.listen = listen
-	b.mu = &sync.Mutex{}
-	b.wg = &sync.WaitGroup{}
-	b.mq = message_tcp.NewMessageQueue()
+	b.topics[message_tcp.Global] = []*ClientBuf{}
 }
 
-// TODO: JSON serialization
-// TODO:Subscriber/publsher stuff
-// TODO:Depending on the type of the message it should call different funcs
-// TODO: MessageQUEUE
-
-// like if it is a subscribe message is it should subcribe the subscirebee to a topic
 func (b *BrokerTCP) Accept() (*ClientBuf, error) {
 	conn, err := b.listen.Accept()
 	if err != nil {
 		return nil, err
 	}
 
-	// err = conn.SetDeadline(<-time.NewTimer(time.Second * 10).C)
-	// if err != nil {
-	// 	log.Printf("failed to set deadline: %v", err)
-	// }
-
-	cb := &ClientBuf{
-		conn:   conn,
-		reader: bufio.NewReader(conn),
-		writer: bufio.NewWriter(conn),
-		mq:     message_tcp.NewMessageQueue(),
-	}
+	cb := NewClientBuf(conn)
 
 	if _, err = cb.writer.WriteString("Greetings\n"); err != nil {
-		log.Printf("Failed to write to buffer ON CONNECTION: %v\n", err)
+		return nil, fmt.Errorf("Failed to write to buffer ON CONNECTION: %v\n", err)
 	}
 
 	if err = cb.writer.Flush(); err != nil {
-		log.Printf("Failed to flush buffer ON CONNECTION: %v\n", err)
+		return nil, fmt.Errorf("Failed to flush buffer ON CONNECTION: %v\n", err)
 	}
 
 	b.wg.Add(1)
@@ -104,13 +116,17 @@ func (b *BrokerTCP) Accept() (*ClientBuf, error) {
 			m = m[:len(m)-1]
 			helpers.CPrintf(helpers.Blue, "Got client data ON CONNECTION: %v\n", m)
 
-			cb.Client = &client_tcp.ClientTCP{}
-			json.Unmarshal([]byte(m), cb.Client)
+			c := &ClientData{}
+			json.Unmarshal([]byte(m), c)
+
+			cb.name = c.Name
+
+			b.clients = slices.DeleteFunc(b.clients, func(c *ClientBuf) bool { return c.name == cb.name })
 
 			b.clients = append(b.clients, cb)
+			b.topics[message_tcp.Global] = append(b.topics[message_tcp.Global], cb)
 
-			b.printClientBuf()
-			helpers.CPrintf(helpers.Blue, "Unmarshallized client data ON CONNECTION: %+v\n", *cb.Client)
+			helpers.CPrintf(helpers.Blue, "Unmarshallized client data ON CONNECTION: %+v\n", *c)
 		}
 	}()
 	b.wg.Wait()
@@ -118,117 +134,214 @@ func (b *BrokerTCP) Accept() (*ClientBuf, error) {
 	return cb, nil
 }
 
-func (b *BrokerTCP) printClientBuf() {
-	helpers.CPrintf(helpers.Green, "ClientBufSlice:")
-	for i, n := range b.clients {
-		helpers.CPrintf(helpers.Green, "%d, %s\n", i, n)
-	}
-}
-
 func (b *BrokerTCP) Serve() {
 	for {
+		helpers.CPrintf(helpers.Cyan, "Serving")
+
 		cb, err := b.Accept()
 		if err != nil {
 			log.Printf("Broker Failed to accept conn: %v\n", err)
+			continue
 		}
 
-		helpers.Wait(
-			b.wg,
-			func() {
-				b.ReadMessage(cb.reader)
-			},
-			func() {
-				b.SendMessage(cb.writer)
-			},
-		)
+		go func(cb *ClientBuf) {
+			for {
+				if err := b.ReadMessage(cb); err != nil {
+					helpers.CPrintf(helpers.Red, "Broker: error while reading: %v\n", err)
+				}
+			}
+		}(cb)
 
-		// go func() {
-		// 	for {
-		// 		time.Sleep(time.Second * 1)
-		// 		msg := fmt.Sprintln("Do you get the message?")
-		//
-		// 		_, err = writer.WriteString(msg)
-		// 		if err != nil {
-		// 			helpers.CPrintf(helpers.Blue, "Broker failed to write a periodic message: %v\n", err)
-		// 			return
-		// 		}
-		//
-		// 		err = writer.Flush()
-		// 		if err != nil {
-		// 			log.Printf("Writer failed to flush a periodic message: %v\n", err)
-		// 			return
-		// 		}
-		// 	}
-		// }()
+		go func() {
+			for {
+				if err := b.SendMessages(); err != nil {
+					helpers.CPrintf(helpers.Red, "Broker: error while sending: %v\n", err)
+				}
+			}
+		}()
+
+		helpers.CPrintf(helpers.Cyan, "Done serving")
 	}
 }
 
-// TODO: func to send a message to a given client(by name or by reference)
-// TODO: func to send a message to multiple clients
-// TODO: Send message to the clients with respective topics
-// or to a client topic which is kind of the same
-// hat means that every client is subsribed to it's own topic but can write to it, only read from it
-// also others can't read from another clients topic
-
-func (b *BrokerTCP) SendMessage(w *bufio.Writer) {
-	m := b.mq.Dequeue()
-
-	response := fmt.Sprintf("Server sent the message back: %v\n", m)
-
-	_, err := w.WriteString(response)
-	if err != nil {
-		helpers.CPrintf(helpers.Red, "Broker failed to write: %v\n", err)
-		return
+func (b *BrokerTCP) SendMessages() error {
+	helpers.CPrintf(helpers.Magenta, "Dequeueing message")
+	msg, ok := <-b.mq.Ch
+	if !ok {
+		return fmt.Errorf("No messages in queue\n")
+	} else {
+		helpers.CPrintf(helpers.Magenta, "Got msg %s\n", msg)
 	}
+	switch msg.Cmd {
+	case message_tcp.Publish:
+		return b.Publish(*msg, msg.Topic)
+	case message_tcp.NewTopic:
+		return b.AddTopic(msg.Topic)
+	case message_tcp.DeleteTopic:
+		return b.DeleteTopic(msg.Topic)
+	case message_tcp.Subscribe:
+		c, err := b.Client(msg.Sender)
+		if err != nil {
+			return err
+		}
 
-	err = w.Flush()
-	if err != nil {
-		log.Printf("Writer failed to flush: %v\n", err)
-		return
+		return b.Subscribe(c, msg.Topic)
+	case message_tcp.Unsubscribe:
+		c, err := b.Client(msg.Sender)
+		if err != nil {
+			return err
+		}
+
+		return b.Unsubscribe(c, msg.Topic)
+	case message_tcp.Topics:
+		c, err := b.Client(msg.Sender)
+		if err != nil {
+			return err
+		}
+		return b.Topics(c)
+	case "":
+		return nil
+	default:
+		return fmt.Errorf("Unkown cmd\n")
 	}
 }
 
-func getClientsByTopic[T ~string](clients []*ClientBuf, t T) ([]*ClientBuf, bool) {
-	c := []*ClientBuf{}
-	for _, client := range clients {
-		for _, topic := range client.topics {
-			if string(topic) == string(t) {
-				c = append(c, client)
+func (b *BrokerTCP) Client(n string) (*ClientBuf, error) {
+	for _, c := range b.clients {
+		if c.name == n {
+			return c, nil
+		}
+	}
+
+	return nil, fmt.Errorf("Client %s not found\n", n)
+}
+
+func (b *BrokerTCP) AddTopic(t message_tcp.Topic) error {
+	if _, ok := b.topics[t]; ok {
+		return fmt.Errorf("Topic \"%s\" already exists\n", t)
+	}
+
+	helpers.CPrintf(helpers.Magenta, "Added Topic")
+	b.topics[t] = []*ClientBuf{}
+
+	return nil
+}
+
+func (b *BrokerTCP) DeleteTopic(t message_tcp.Topic) error {
+	if _, ok := b.topics[t]; ok {
+		helpers.CPrintf(helpers.Magenta, "Deleting Topic")
+		delete(b.topics, t)
+		return nil
+	}
+
+	return fmt.Errorf("Topic \"%s\" doesn't exist\n", t)
+}
+
+func (b *BrokerTCP) Subscribe(cb *ClientBuf, t message_tcp.Topic) error {
+	if bt, ok := b.topics[t]; ok {
+		b.topics[t] = append(bt, cb)
+		return nil
+	}
+
+	return fmt.Errorf("Topic \"%s\" doesn't exist\n", t)
+}
+
+func (b *BrokerTCP) Unsubscribe(cb *ClientBuf, t message_tcp.Topic) error {
+	if clients, ok := b.topics[t]; ok {
+		helpers.CPrintf(helpers.Magenta, "Unsubscribing")
+		for i, c := range clients {
+			if c == cb {
+				b.topics[t] = append(clients[:i], clients[i+1:]...)
+				return nil
 			}
 		}
+		return fmt.Errorf("Client \"%s\" doesn't exist\n", cb.name)
 	}
-	if len(c) == 0 {
-		return nil, false
-	}
-	return c, true
+
+	return fmt.Errorf("Topic \"%s\" doesn't exist\n", t)
 }
 
-// TODO: check the type of the message and act accordingly
-// TODO: actually implement the commands, if a command is passed it is executed
-
-func (b *BrokerTCP) ReadMessage(r *bufio.Reader) {
-	mStr, err := r.ReadString('\n')
-	if err != nil {
-		helpers.CPrintf(helpers.Red, "Broker failed to read: %v\n", err)
+func (b *BrokerTCP) Publish(m message_tcp.Message, t message_tcp.Topic) error {
+	if clients, ok := b.topics[t]; ok {
+		helpers.CPrintf(helpers.Magenta, "Publishing")
+		for _, client := range clients {
+			if c, err := b.Client(m.Sender); c == client && err != nil {
+				b.SendMessage(c, m)
+			}
+		}
+		return nil
 	}
+
+	return fmt.Errorf("Topic \"%s\" doesn't exist\n", t)
+}
+
+func (b *BrokerTCP) Topics(s *ClientBuf) error {
+	topics := ""
+	for topic := range b.topics {
+		topics += " " + string(topic)
+	}
+	m := message_tcp.Message{
+		Sender:  "Broker",
+		Topic:   message_tcp.AllTopics,
+		Payload: topics,
+	}
+
+	helpers.CPrintf(helpers.Magenta, "Sending Topics")
+	b.SendMessage(s, m)
+	return nil
+}
+
+func (b *BrokerTCP) SendMessage(cb *ClientBuf, m message_tcp.Message) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	d, err := json.Marshal(m)
+
+	_, err = cb.writer.WriteString(string(d) + "\n")
+	if err != nil {
+		return fmt.Errorf("Broker failed to write: %v\n", err)
+	}
+
+	err = cb.writer.Flush()
+	if err != nil {
+		return fmt.Errorf("Writer failed to flush: %v\n", err)
+	}
+
+	return nil
+}
+
+// TODO: check the cmd, type, topic of the message and act accordingly
+
+func (b *BrokerTCP) ReadMessage(cb *ClientBuf) error {
+	s, err := cb.reader.ReadString('\n')
+	if err != nil {
+		return fmt.Errorf("Broker failed to read: %v\n", err)
+	}
+
 	var msg message_tcp.Message
-	err = json.Unmarshal([]byte(mStr), &msg)
+
+	err = json.Unmarshal([]byte(s), &msg)
 	if err != nil {
-		log.Printf("Failed to unmarshall on write: %v", err)
+		return fmt.Errorf("Failed to unmarshall on read: %v", err)
 	}
 
-	b.mq.Queue(msg)
+	// queue in broker if the message is global queue in client if the message is to a topic
 
 	fmt.Printf("Server got msg: %v\n", msg)
-	return
+
+	b.mu.Lock()
+	b.mq.Queue(&msg)
+	b.mu.Unlock()
+
+	return nil
 }
 
-func (b *BrokerTCP) Close() {
-	b.listen.Close()
+func (b *BrokerTCP) Close() error {
+	return fmt.Errorf("Error while closing the broker: %v\n", b.listen.Close())
 }
 
 func Run() {
-	b := BrokerTCP{}
-	b.Open("")
+	fmt.Println("Started Broker")
+	b := NewBrokerTCP()
+	b.Init("")
 	b.Serve()
 }

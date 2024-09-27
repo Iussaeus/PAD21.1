@@ -1,6 +1,6 @@
 package broker
 
 type Broker interface {
-	Open(port string)	
+	Init(port string)	
 	Serve()
 }

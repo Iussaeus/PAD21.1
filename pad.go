@@ -35,9 +35,9 @@ func main() {
 			case "":
 				fmt.Println("Enter a name for the client")
 			case "Test1":
-				client_tcp.Run(name)
+				client_tcp.Run(name, "")
 			case "Test2":
-				client_tcp.Run(name)
+				client_tcp.Run(name, "")
 			default:
 				fmt.Println("FOR TEST PURPOSES ONLY Test1 AND Test2 ARE ALLOWED")
 			}
