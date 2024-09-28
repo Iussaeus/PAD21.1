@@ -44,29 +44,25 @@ func NewClientBuf(conn net.Conn) *ClientBuf {
 }
 
 func (cb *ClientBuf) String() string {
-	return fmt.Sprintf("ClientBuf: conn=%v, r=%p, w=%p", cb.conn, cb.reader, cb.writer)
+	return fmt.Sprintf("ClientBuf: %s", cb.name)
 }
 
-// TODO: *map[topic][]*client
-// mq is a global message queue
 type BrokerTCP struct {
-	listen net.Listener
-	// all connected clients
+	listen  net.Listener
 	clients []*ClientBuf
-	// clients that are subscribed to a particular topic
-	topics map[message_tcp.Topic][]*ClientBuf
-	mq     *message_tcp.MessageQueue
-	mu     *sync.Mutex
-	wg     *sync.WaitGroup
+	topics  map[message_tcp.Topic][]*ClientBuf
+	mq      *message_tcp.MessageQueue
+	mu      *sync.RWMutex
+	wg      *sync.WaitGroup
 }
 
 func (b *BrokerTCP) String() string {
-	return fmt.Sprintf("Client: %s Topics:%s", b.clients, b.topics)
+	return fmt.Sprintf("Clients: %d Topics:%s", len(b.clients), b.topics)
 }
 
 func NewBrokerTCP() *BrokerTCP {
 	return &BrokerTCP{
-		mu:      &sync.Mutex{},
+		mu:      &sync.RWMutex{},
 		wg:      &sync.WaitGroup{},
 		mq:      message_tcp.NewMessageQueue(),
 		clients: []*ClientBuf{},
@@ -157,6 +153,7 @@ func (b *BrokerTCP) Serve() {
 				if err := b.SendMessages(); err != nil {
 					helpers.CPrintf(helpers.Red, "Broker: error while sending: %v\n", err)
 				}
+				helpers.CPrintf(helpers.Yellow, "Broker: %s\n", b)
 			}
 		}()
 
@@ -165,13 +162,11 @@ func (b *BrokerTCP) Serve() {
 }
 
 func (b *BrokerTCP) SendMessages() error {
-	helpers.CPrintf(helpers.Magenta, "Dequeueing message")
-	msg, ok := <-b.mq.Ch
-	if !ok {
-		return fmt.Errorf("No messages in queue\n")
-	} else {
-		helpers.CPrintf(helpers.Magenta, "Got msg %s\n", msg)
-	}
+	errChan := make(chan error)
+	defer close(errChan)
+
+	msg := b.mq.Dequeue()
+	helpers.CPrintf(helpers.Magenta, "Got msg %s\n", msg)
 	switch msg.Cmd {
 	case message_tcp.Publish:
 		return b.Publish(*msg, msg.Topic)
@@ -239,6 +234,7 @@ func (b *BrokerTCP) DeleteTopic(t message_tcp.Topic) error {
 
 func (b *BrokerTCP) Subscribe(cb *ClientBuf, t message_tcp.Topic) error {
 	if bt, ok := b.topics[t]; ok {
+		helpers.CPrintf(helpers.Magenta, "Subscribing")
 		b.topics[t] = append(bt, cb)
 		return nil
 	}
@@ -262,14 +258,21 @@ func (b *BrokerTCP) Unsubscribe(cb *ClientBuf, t message_tcp.Topic) error {
 }
 
 func (b *BrokerTCP) Publish(m message_tcp.Message, t message_tcp.Topic) error {
+	b.wg.Add(1)
+	defer b.wg.Done()
+
 	if clients, ok := b.topics[t]; ok {
 		helpers.CPrintf(helpers.Magenta, "Publishing")
+		sender, err := b.Client(m.Sender)
+		if err != nil {
+			return err
+		}
 		for _, client := range clients {
-			if c, err := b.Client(m.Sender); c == client && err != nil {
-				b.SendMessage(c, m)
+			if sender != client {
+				helpers.CPrintf(helpers.Magenta, "Done Publishing")
+				b.SendMessage(client, m)
 			}
 		}
-		return nil
 	}
 
 	return fmt.Errorf("Topic \"%s\" doesn't exist\n", t)
@@ -294,6 +297,7 @@ func (b *BrokerTCP) Topics(s *ClientBuf) error {
 func (b *BrokerTCP) SendMessage(cb *ClientBuf, m message_tcp.Message) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	d, err := json.Marshal(m)
 
 	_, err = cb.writer.WriteString(string(d) + "\n")
@@ -340,7 +344,11 @@ func (b *BrokerTCP) Close() error {
 }
 
 func Run() {
+	helpers.AwaitSIGINT()
+
+	// port := "12345"
 	fmt.Println("Started Broker")
+
 	b := NewBrokerTCP()
 	b.Init("")
 	b.Serve()

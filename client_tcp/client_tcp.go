@@ -8,8 +8,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
-	"os/signal"
 	"sync"
 	"time"
 
@@ -232,77 +230,57 @@ func (c *ClientTCP) ReadMessage() error {
 // with a time and topic as params
 
 func Run(name string, port string) {
+	helpers.AwaitSIGINT()
+
 	fmt.Println("Started Client main")
-	c := NewClientTCP(name)
-	c.Connect(port)
 
-	// t := time.After(10 * time.Second)
+	wg := &sync.WaitGroup{}
+	time.Sleep(500 * time.Millisecond)
+	helpers.Wait(wg,
+		func() {
+			c := NewClientTCP("Twister")
+			c.Connect(port)
 
-	// msg := message_tcp.Message{
-	// 	Sender:  c.Name,
-	// 	Cmd:     message_tcp.Publish,
-	// 	Topic:   message_tcp.Global,
-	// 	Payload: "I hate you",
-	// }
+			go func() {
+				for {
+					err := c.ReadMessage()
+					if err != io.EOF && err != nil {
+						fmt.Println(err)
+					}
+				}
 
-	s := make(chan os.Signal, 1)
-	signal.Notify(s, os.Interrupt)
-	go func() {
-		<-s
-		fmt.Println("\nend of client from main")
-		os.Exit(0)
-	}()
+			}()
 
-	wg := sync.WaitGroup{}
+			helpers.Wait(wg, func() {
+				c.NewTopic("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(500 * time.Millisecond)
+				c.Publish("Arent i a genius", "dsa")
+			})
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c.Topics()
-	}()
-	wg.Wait()
+		},
+		func() {
+			c := NewClientTCP("TESTIES")
+			c.Connect(port)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		time.Sleep(time.Second)
-		c.NewTopic("dsa")
-	}()
-	wg.Wait()
+			go func() {
+				for {
+					err := c.ReadMessage()
+					if err != io.EOF && err != nil {
+						fmt.Println(err)
+					}
+				}
+			}()
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c.Subscribe("dsa")
-	}()
-	wg.Wait()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c.Publish("I am right", "dsa")
-	}()
-	wg.Wait()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c.Unsubscribe("dsa")
-	}()
-	wg.Wait()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c.DeleteTopic("dsa")
-	}()
-	wg.Wait()
-
-	for {
-		if err := c.ReadMessage(); err == io.EOF {
-			os.Exit(1)
-		} else if err != nil {
-			os.Exit(1)
-		}
-	}
+			helpers.Wait(wg, func() {
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				c.Publish("I like being a genius", "dsa")
+			})
+		})
 }

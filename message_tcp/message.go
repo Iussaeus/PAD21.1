@@ -59,9 +59,8 @@ func (mq *MessageQueue) Queue(m *Message) {
 	mq.Ch <- m
 }
 
-func (mq *MessageQueue) Dequeue() (*Message, bool) {
-	msg, ok := <-mq.Ch
-	return msg, ok 
+func (mq *MessageQueue) Dequeue() *Message{
+	return <-mq.Ch
 }
 
 func (mq *MessageQueue) Close() {

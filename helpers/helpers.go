@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"regexp"
 	"sync"
 	"testing"
@@ -88,4 +89,15 @@ func CaptureStdout(f func()) ([]byte, error) {
 	}
 
 	return out, nil
+}
+
+func AwaitSIGINT() {
+	s := make(chan os.Signal, 1)
+	signal.Notify(s, os.Interrupt)
+
+	go func() {
+		<-s
+		fmt.Println("\nExiting")
+		os.Exit(0)
+	}()
 }
