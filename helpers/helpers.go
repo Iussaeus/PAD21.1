@@ -91,6 +91,18 @@ func CaptureStdout(f func()) ([]byte, error) {
 	return out, nil
 }
 
+func AwaitSIGINTFunc(f func()) {
+	s := make(chan os.Signal, 1)
+	signal.Notify(s, os.Interrupt)
+
+	go func() {
+		<-s
+		f()
+		fmt.Println("\nExiting")
+		os.Exit(0)
+	}()
+}
+
 func AwaitSIGINT() {
 	s := make(chan os.Signal, 1)
 	signal.Notify(s, os.Interrupt)
@@ -98,6 +110,7 @@ func AwaitSIGINT() {
 	go func() {
 		<-s
 		fmt.Println("\nExiting")
+
 		os.Exit(0)
 	}()
 }

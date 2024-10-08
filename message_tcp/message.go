@@ -44,25 +44,3 @@ const (
 	Empty     Topic = "empty"
 	AllTopics Topic = "topics"
 )
-
-type MessageQueue struct {
-	Ch chan *Message
-}
-
-func NewMessageQueue() *MessageQueue {
-	return &MessageQueue{
-		Ch: make(chan *Message),
-	}
-}
-
-func (mq *MessageQueue) Queue(m *Message) {
-	mq.Ch <- m
-}
-
-func (mq *MessageQueue) Dequeue() *Message{
-	return <-mq.Ch
-}
-
-func (mq *MessageQueue) Close() {
-	close(mq.Ch)
-}

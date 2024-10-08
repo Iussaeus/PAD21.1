@@ -2,7 +2,6 @@ package client_tcp
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,24 +15,20 @@ import (
 )
 
 type ClientTCP struct {
-	Name   string `json:"name"`
-	conn   net.Conn
-	r      *bufio.Reader
-	w      *bufio.Writer
-	mutex  *sync.Mutex
-	wg     *sync.WaitGroup
-	ctx    context.Context
-	cancel context.CancelFunc
+	Name     string `json:"name"`
+	conn     net.Conn
+	messages []message_tcp.Message
+	r        *bufio.Reader
+	w        *bufio.Writer
+	mutex    *sync.Mutex
+	wg       *sync.WaitGroup
 }
 
 func NewClientTCP(name string) *ClientTCP {
-	ctx, cancel := context.WithCancel(context.Background())
 	return &ClientTCP{
-		Name:   name,
-		mutex:  &sync.Mutex{},
-		wg:     &sync.WaitGroup{},
-		ctx:    ctx,
-		cancel: cancel,
+		Name:  name,
+		mutex: &sync.Mutex{},
+		wg:    &sync.WaitGroup{},
 	}
 }
 
@@ -83,16 +78,6 @@ func (c *ClientTCP) Connect(port string) {
 }
 
 func (c *ClientTCP) Disconnect() {
-	if c.conn != nil {
-		err := c.conn.Close()
-		if err != nil {
-			log.Printf("Err while closing connection: %v\n", err)
-		}
-		c.conn = nil
-	}
-
-	c.cancel()
-
 	if c.w != nil {
 		err := c.w.Flush()
 		if err != nil {
@@ -101,7 +86,13 @@ func (c *ClientTCP) Disconnect() {
 		c.w = nil
 	}
 
-	c.r = nil
+	if c.conn != nil {
+		err := c.conn.Close()
+		if err != nil {
+			log.Printf("Err while closing connection: %v\n", err)
+		}
+		c.conn = nil
+	}
 
 	c = nil
 }
@@ -204,9 +195,7 @@ func (c *ClientTCP) ReadMessage() error {
 
 	s, err := c.r.ReadString('\n')
 
-	if err == net.ErrClosed {
-		return err
-	} else if err != nil {
+	if err != nil {
 		return err
 	}
 
@@ -220,6 +209,8 @@ func (c *ClientTCP) ReadMessage() error {
 		return err
 	}
 
+	c.messages = append(c.messages, m)
+
 	fmt.Printf("%s got message: %s\n", c.Name, m)
 	return nil
 }
@@ -229,58 +220,139 @@ func (c *ClientTCP) ReadMessage() error {
 // TODO: make a function to send message to another client for testing purposes
 // with a time and topic as params
 
-func Run(name string, port string) {
-	helpers.AwaitSIGINT()
+func InitNewClientFunc(name string, port string, wch chan struct{}, f func(c *ClientTCP)) {
+	c := NewClientTCP(name)
+	c.Connect(port)
 
+	go func() {
+		for {
+			select {
+			default:
+				err := c.ReadMessage()
+				if err == io.EOF && err != nil {
+				}
+			case <-wch:
+				wch <- struct{}{}
+				return
+			}
+		}
+	}()
+
+	helpers.Wait(c.wg, func() {
+		f(c)
+		wch <- struct{}{}
+	})
+}
+
+func (c *ClientTCP) InitFunc(port string, wch chan struct{}, f func(c *ClientTCP)) {
+	c.Connect(port)
+
+	go func() {
+		for {
+			select {
+			default:
+				err := c.ReadMessage()
+				if err == io.EOF && err != nil {
+				}
+			case <-wch:
+				wch <- struct{}{}
+				return
+			}
+		}
+	}()
+
+	helpers.Wait(c.wg, func() {
+		f(c)
+		wch <- struct{}{}
+	})
+}
+
+func Run(name string, port string) {
 	fmt.Println("Started Client main")
 
-	wg := &sync.WaitGroup{}
-	time.Sleep(500 * time.Millisecond)
-	helpers.Wait(wg,
-		func() {
-			c := NewClientTCP("Twister")
-			c.Connect(port)
+	ch := make(chan struct{})
 
-			go func() {
-				for {
-					err := c.ReadMessage()
-					if err != io.EOF && err != nil {
-						fmt.Println(err)
-					}
-				}
-
-			}()
-
-			helpers.Wait(wg, func() {
-				c.NewTopic("dsa")
-				time.Sleep(500 * time.Millisecond)
-				c.Subscribe("dsa")
-				time.Sleep(500 * time.Millisecond)
-				c.Topics()
-				time.Sleep(500 * time.Millisecond)
-				c.Publish("Arent i a genius", "dsa")
-			})
-
-		},
-		func() {
-			c := NewClientTCP("TESTIES")
-			c.Connect(port)
-
-			go func() {
-				for {
-					err := c.ReadMessage()
-					if err != io.EOF && err != nil {
-						fmt.Println(err)
-					}
-				}
-			}()
-
-			helpers.Wait(wg, func() {
-				time.Sleep(500 * time.Millisecond)
-				c.Topics()
-				time.Sleep(500 * time.Millisecond)
-				c.Subscribe("dsa")
-				c.Publish("I like being a genius", "dsa")
-			})
+	go InitNewClientFunc("SaneaNeLoh", "", ch,
+		func(c *ClientTCP) {
+			c.NewTopic("dsa")
+			time.Sleep(300 * time.Millisecond)
+			c.Subscribe("dsa")
+			time.Sleep(500 * time.Millisecond)
+			c.Topics()
+			time.Sleep(600 * time.Millisecond)
+			c.Publish("Hell", "dsa")
+			time.Sleep(600 * time.Millisecond)
 		})
+
+	go func() {
+		c := NewClientTCP("Test")
+		c.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("1", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+
+	go func() {
+		c1 := NewClientTCP("Test2")
+		c1.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("2", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+
+	go func() {
+		c2 := NewClientTCP("Test3")
+		c2.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("3", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+
+	go func() {
+		c3 := NewClientTCP("Test4")
+		c3.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("4", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+
+	go func() {
+		c4 := NewClientTCP("Test5")
+		c4.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("5", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+
+	<-ch
 }

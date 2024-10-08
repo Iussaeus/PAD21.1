@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"slices"
@@ -14,14 +15,11 @@ import (
 	"pad/message_tcp"
 )
 
-// TODO: make it deploy worthy
-
-// TODO: persistent data storage
+// TODO: periodic ping pong to see if a client is still connected, if not remove the connection
 // TODO: remove clients from slice when they disconnect
 
 var _ broker.Broker = (*BrokerTCP)(nil)
 
-// mq is a client queue
 type ClientData struct {
 	Name string
 }
@@ -30,8 +28,32 @@ type ClientBuf struct {
 	name   string
 	reader *bufio.Reader
 	writer *bufio.Writer
-	mq     *message_tcp.MessageQueue
+	mq     *MessageQueue
 	conn   net.Conn
+	clChan chan struct{}
+}
+
+type MessageQueue struct {
+	ch chan Message
+}
+
+func (mq *MessageQueue) Queue(m Message) {
+	mq.ch <- m
+}
+
+func (mq *MessageQueue) Dequeue() Message {
+	return <-mq.ch
+}
+
+func NewMessageQueue() *MessageQueue {
+	return &MessageQueue{
+		make(chan Message),
+	}
+}
+
+type Message struct {
+	buf *ClientBuf
+	m   message_tcp.Message
 }
 
 func NewClientBuf(conn net.Conn) *ClientBuf {
@@ -39,32 +61,33 @@ func NewClientBuf(conn net.Conn) *ClientBuf {
 		conn:   conn,
 		reader: bufio.NewReader(conn),
 		writer: bufio.NewWriter(conn),
-		mq:     message_tcp.NewMessageQueue(),
+		mq:     NewMessageQueue(),
+		clChan: make(chan struct{}),
 	}
 }
 
 func (cb *ClientBuf) String() string {
-	return fmt.Sprintf("ClientBuf: %s", cb.name)
+	return fmt.Sprintf("%s", cb.name)
 }
 
 type BrokerTCP struct {
 	listen  net.Listener
 	clients []*ClientBuf
 	topics  map[message_tcp.Topic][]*ClientBuf
-	mq      *message_tcp.MessageQueue
+	mq      *MessageQueue
 	mu      *sync.RWMutex
 	wg      *sync.WaitGroup
 }
 
 func (b *BrokerTCP) String() string {
-	return fmt.Sprintf("Clients: %d Topics:%s", len(b.clients), b.topics)
+	return fmt.Sprintf("Clients:%d, Topics:%s", len(b.clients), b.topics)
 }
 
 func NewBrokerTCP() *BrokerTCP {
 	return &BrokerTCP{
 		mu:      &sync.RWMutex{},
 		wg:      &sync.WaitGroup{},
-		mq:      message_tcp.NewMessageQueue(),
+		mq:      NewMessageQueue(),
 		clients: []*ClientBuf{},
 		topics:  make(map[message_tcp.Topic][]*ClientBuf),
 	}
@@ -142,7 +165,11 @@ func (b *BrokerTCP) Serve() {
 
 		go func(cb *ClientBuf) {
 			for {
-				if err := b.ReadMessage(cb); err != nil {
+				if err := b.ReadMessage(cb); err == io.EOF {
+					b.DeleteClientBuf(cb)
+					helpers.CPrintf(helpers.Green, "Broker after delete: %s\n", b)
+					return
+				} else if err != nil {
 					helpers.CPrintf(helpers.Red, "Broker: error while reading: %v\n", err)
 				}
 			}
@@ -162,53 +189,34 @@ func (b *BrokerTCP) Serve() {
 }
 
 func (b *BrokerTCP) SendMessages() error {
-	errChan := make(chan error)
-	defer close(errChan)
-
 	msg := b.mq.Dequeue()
+
 	helpers.CPrintf(helpers.Magenta, "Got msg %s\n", msg)
-	switch msg.Cmd {
+	switch msg.m.Cmd {
 	case message_tcp.Publish:
-		return b.Publish(*msg, msg.Topic)
+		return b.Publish(msg, msg.m.Topic)
+
 	case message_tcp.NewTopic:
-		return b.AddTopic(msg.Topic)
+		return b.AddTopic(msg.m.Topic)
+
 	case message_tcp.DeleteTopic:
-		return b.DeleteTopic(msg.Topic)
+		return b.DeleteTopic(msg.m.Topic)
+
 	case message_tcp.Subscribe:
-		c, err := b.Client(msg.Sender)
-		if err != nil {
-			return err
-		}
+		return b.Subscribe(msg.buf, msg.m.Topic)
 
-		return b.Subscribe(c, msg.Topic)
 	case message_tcp.Unsubscribe:
-		c, err := b.Client(msg.Sender)
-		if err != nil {
-			return err
-		}
+		return b.Unsubscribe(msg.buf, msg.m.Topic)
 
-		return b.Unsubscribe(c, msg.Topic)
 	case message_tcp.Topics:
-		c, err := b.Client(msg.Sender)
-		if err != nil {
-			return err
-		}
-		return b.Topics(c)
+		return b.Topics(msg.buf)
+
 	case "":
 		return nil
+
 	default:
 		return fmt.Errorf("Unkown cmd\n")
 	}
-}
-
-func (b *BrokerTCP) Client(n string) (*ClientBuf, error) {
-	for _, c := range b.clients {
-		if c.name == n {
-			return c, nil
-		}
-	}
-
-	return nil, fmt.Errorf("Client %s not found\n", n)
 }
 
 func (b *BrokerTCP) AddTopic(t message_tcp.Topic) error {
@@ -216,7 +224,7 @@ func (b *BrokerTCP) AddTopic(t message_tcp.Topic) error {
 		return fmt.Errorf("Topic \"%s\" already exists\n", t)
 	}
 
-	helpers.CPrintf(helpers.Magenta, "Added Topic")
+	// helpers.CPrintf(helpers.Magenta, "Added Topic")
 	b.topics[t] = []*ClientBuf{}
 
 	return nil
@@ -224,8 +232,11 @@ func (b *BrokerTCP) AddTopic(t message_tcp.Topic) error {
 
 func (b *BrokerTCP) DeleteTopic(t message_tcp.Topic) error {
 	if _, ok := b.topics[t]; ok {
-		helpers.CPrintf(helpers.Magenta, "Deleting Topic")
+		// helpers.CPrintf(helpers.Magenta, "Deleting Topic")
+		b.mu.Lock()
 		delete(b.topics, t)
+		b.mu.Unlock()
+
 		return nil
 	}
 
@@ -233,9 +244,16 @@ func (b *BrokerTCP) DeleteTopic(t message_tcp.Topic) error {
 }
 
 func (b *BrokerTCP) Subscribe(cb *ClientBuf, t message_tcp.Topic) error {
-	if bt, ok := b.topics[t]; ok {
-		helpers.CPrintf(helpers.Magenta, "Subscribing")
-		b.topics[t] = append(bt, cb)
+	if c, ok := b.topics[t]; ok {
+		for _, client := range c {
+			if client == cb {
+				return fmt.Errorf("Client %s is already subscribed to %s", cb.name, t)
+			}
+		}
+		// helpers.CPrintf(helpers.Magenta, "Subscribing")
+		b.mu.Lock()
+		b.topics[t] = append(c, cb)
+		b.mu.Unlock()
 		return nil
 	}
 
@@ -244,10 +262,12 @@ func (b *BrokerTCP) Subscribe(cb *ClientBuf, t message_tcp.Topic) error {
 
 func (b *BrokerTCP) Unsubscribe(cb *ClientBuf, t message_tcp.Topic) error {
 	if clients, ok := b.topics[t]; ok {
-		helpers.CPrintf(helpers.Magenta, "Unsubscribing")
+		// helpers.CPrintf(helpers.Magenta, "Unsubscribing")
 		for i, c := range clients {
 			if c == cb {
+				b.mu.Lock()
 				b.topics[t] = append(clients[:i], clients[i+1:]...)
+				b.mu.Unlock()
 				return nil
 			}
 		}
@@ -257,39 +277,36 @@ func (b *BrokerTCP) Unsubscribe(cb *ClientBuf, t message_tcp.Topic) error {
 	return fmt.Errorf("Topic \"%s\" doesn't exist\n", t)
 }
 
-func (b *BrokerTCP) Publish(m message_tcp.Message, t message_tcp.Topic) error {
-	b.wg.Add(1)
-	defer b.wg.Done()
-
+func (b *BrokerTCP) Publish(m Message, t message_tcp.Topic) error {
 	if clients, ok := b.topics[t]; ok {
-		helpers.CPrintf(helpers.Magenta, "Publishing")
-		sender, err := b.Client(m.Sender)
-		if err != nil {
-			return err
-		}
+		// helpers.CPrintf(helpers.Magenta, "Publishing")
 		for _, client := range clients {
-			if sender != client {
-				helpers.CPrintf(helpers.Magenta, "Done Publishing")
-				b.SendMessage(client, m)
+			if  m.buf != client {
+				// helpers.CPrintf(helpers.Magenta, "Done Publishing")
+				b.SendMessage(client, m.m)
 			}
 		}
+		return nil
 	}
-
 	return fmt.Errorf("Topic \"%s\" doesn't exist\n", t)
 }
 
 func (b *BrokerTCP) Topics(s *ClientBuf) error {
 	topics := ""
+
+	b.mu.Lock()
 	for topic := range b.topics {
-		topics += " " + string(topic)
+		topics += string(topic) + " "
 	}
+	b.mu.Unlock()
+
 	m := message_tcp.Message{
 		Sender:  "Broker",
 		Topic:   message_tcp.AllTopics,
 		Payload: topics,
 	}
 
-	helpers.CPrintf(helpers.Magenta, "Sending Topics")
+	// helpers.CPrintf(helpers.Magenta, "Sending Topics")
 	b.SendMessage(s, m)
 	return nil
 }
@@ -318,25 +335,39 @@ func (b *BrokerTCP) SendMessage(cb *ClientBuf, m message_tcp.Message) error {
 func (b *BrokerTCP) ReadMessage(cb *ClientBuf) error {
 	s, err := cb.reader.ReadString('\n')
 	if err != nil {
-		return fmt.Errorf("Broker failed to read: %v\n", err)
+		return err
 	}
 
 	var msg message_tcp.Message
 
 	err = json.Unmarshal([]byte(s), &msg)
 	if err != nil {
-		return fmt.Errorf("Failed to unmarshall on read: %v", err)
+		return err
 	}
 
-	// queue in broker if the message is global queue in client if the message is to a topic
+	msgBuf := &Message{m: msg, buf: cb}
 
 	fmt.Printf("Server got msg: %v\n", msg)
 
 	b.mu.Lock()
-	b.mq.Queue(&msg)
+	b.mq.Queue(*msgBuf)
 	b.mu.Unlock()
 
 	return nil
+}
+
+func (b *BrokerTCP) DeleteClientBuf(cb *ClientBuf) {
+	cb.conn.Close()
+
+	for t, c := range b.topics {
+		for i, client := range c {
+			if cb == client {
+				b.mu.Lock()
+				b.topics[t] = append(c[:i], c[i+1:]...)
+				b.mu.Unlock()
+			}
+		}
+	}
 }
 
 func (b *BrokerTCP) Close() error {
@@ -346,7 +377,6 @@ func (b *BrokerTCP) Close() error {
 func Run() {
 	helpers.AwaitSIGINT()
 
-	// port := "12345"
 	fmt.Println("Started Broker")
 
 	b := NewBrokerTCP()
