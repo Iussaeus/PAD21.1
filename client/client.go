@@ -8,4 +8,3 @@ type Client interface {
 	Connect()
 	Disconnect()
 }
-

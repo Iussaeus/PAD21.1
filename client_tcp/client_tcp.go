@@ -15,7 +15,7 @@ import (
 )
 
 type ClientTCP struct {
-	Name     string `json:"name"`
+	Name     string
 	conn     net.Conn
 	messages []message_tcp.Message
 	r        *bufio.Reader
@@ -36,6 +36,7 @@ func (c *ClientTCP) Connect(port string) {
 	if port == "" {
 		port = "12345"
 	}
+
 	conn, err := net.Dial("tcp", ":"+port)
 	if err != nil {
 		log.Fatalf("Failed to connect client: %s\n", err)
@@ -272,7 +273,7 @@ func Run(name string, port string) {
 
 	ch := make(chan struct{})
 
-	go InitNewClientFunc("SaneaNeLoh", "", ch,
+	go InitNewClientFunc("Sanea", "", ch,
 		func(c *ClientTCP) {
 			c.NewTopic("dsa")
 			time.Sleep(300 * time.Millisecond)
@@ -308,6 +309,85 @@ func Run(name string, port string) {
 				c.Topics()
 				time.Sleep(600 * time.Millisecond)
 				c.Publish("2", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+
+	go func() {
+		c2 := NewClientTCP("Test3")
+		c2.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("3", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+	go func() {
+		c2 := NewClientTCP("Test3")
+		c2.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("3", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+	go func() {
+		c2 := NewClientTCP("Test3")
+		c2.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("3", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+	go func() {
+		c2 := NewClientTCP("Test3")
+		c2.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("3", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+	go func() {
+		c2 := NewClientTCP("Test3")
+		c2.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("3", "dsa")
+				time.Sleep(600 * time.Millisecond)
+			})
+	}()
+	go func() {
+		c2 := NewClientTCP("Test3")
+		c2.InitFunc("", ch,
+			func(c *ClientTCP) {
+				time.Sleep(500 * time.Millisecond)
+				c.Subscribe("dsa")
+				time.Sleep(500 * time.Millisecond)
+				c.Topics()
+				time.Sleep(600 * time.Millisecond)
+				c.Publish("3", "dsa")
 				time.Sleep(600 * time.Millisecond)
 			})
 	}()

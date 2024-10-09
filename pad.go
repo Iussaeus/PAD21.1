@@ -25,14 +25,13 @@ func main() {
 		case "broker":
 			broker_tcp.Run()
 		case "client":
+			if len(os.Args) == 3 {
+				client_tcp.Run("","")
+				return
+			}
 
 			command := os.Args[4]
 			args := os.Args[5:]
-
-			if len(os.Args) < 4 {
-				fmt.Println("Usage: go run pad [tcp|grpc] [client] [Name]")
-				return
-			}
 
 			name := os.Args[3]
 
