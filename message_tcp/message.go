@@ -1,44 +1,46 @@
 package message_tcp
 
-import (
-)
-
-type Client interface{
-	SendMessage(receiver string, message string)
-	ReadMessage()
-	Connect()
-	Disconnect()
-}
+import "fmt"
 
 type MessageType uint8
 
+type Client interface {
+	Connect(port string)
+	Disconnect() error
+	SendMessage(m Message) error
+	ReadMessage() error
+}
+
+type Command string
+
 const (
-	Unicast MessageType = iota
-	Multicast
+	Publish     Command = "publish"
+	Subscribe   Command = "subscribe"
+	Unsubscribe Command = "unsubscribe"
+	Topics      Command = "topics"
+	NewTopic    Command = "newTopic"
+	DeleteTopic Command = "delete"
 )
 
-// TODO: move the message and the message type to their own module
-// TODO: message queue
-
 type Message struct {
-	Sender      Client
-	Receiver    string
-	MessageType MessageType
-	Payload     string
+	Sender  string  `json:"sender"`
+	Cmd     Command `json:"command"`
+	Topic   Topic   `json:"topic"`
+	Payload string  `json:"payload"`
+}
+
+func (m Message) String() string {
+	return fmt.Sprintf("Sender: %s, Cmd: %s, Topic: %s, Payload: %s", m.Sender, m.Cmd, m.Topic, m.Payload)
+}
+
+func (m Message) IsEmpty() bool {
+	return m == Message{}
 }
 
 type Topic string
 
-// topics contain a map of the topics and the subsribers
-type MessageQueue struct {
-	Topics         map[Topic][]Client
-	QueuedMessages []Message
-}
-
-func (mq *MessageQueue) Queue(m Message) error {
-	return nil
-}
-
-func (mq *MessageQueue) Dequeue(m Message) error {
-	return nil
-}
+const (
+	Global    Topic = "global"
+	Empty     Topic = "empty"
+	AllTopics Topic = "topics"
+)
