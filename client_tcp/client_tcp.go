@@ -326,6 +326,7 @@ func Run(name string, port string) {
 				time.Sleep(600 * time.Millisecond)
 			})
 	}()
+
 	go func() {
 		c2 := NewClientTCP("Test3")
 		c2.InitFunc("", ch,
@@ -339,6 +340,7 @@ func Run(name string, port string) {
 				time.Sleep(600 * time.Millisecond)
 			})
 	}()
+
 	go func() {
 		c2 := NewClientTCP("Test3")
 		c2.InitFunc("", ch,
@@ -352,6 +354,7 @@ func Run(name string, port string) {
 				time.Sleep(600 * time.Millisecond)
 			})
 	}()
+
 	go func() {
 		c2 := NewClientTCP("Test3")
 		c2.InitFunc("", ch,
@@ -365,6 +368,7 @@ func Run(name string, port string) {
 				time.Sleep(600 * time.Millisecond)
 			})
 	}()
+
 	go func() {
 		c2 := NewClientTCP("Test3")
 		c2.InitFunc("", ch,
@@ -378,6 +382,7 @@ func Run(name string, port string) {
 				time.Sleep(600 * time.Millisecond)
 			})
 	}()
+
 	go func() {
 		c2 := NewClientTCP("Test3")
 		c2.InitFunc("", ch,
