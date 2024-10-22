@@ -2,10 +2,13 @@ package helpers
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
+	"regexp"
+	"sync"
+	"testing"
 )
-
-// NOTE: maybe make a helper module for colored prints
 
 type Color string
 
@@ -20,19 +23,94 @@ const (
 	Reset   Color = "\033[0m"
 )
 
-func Assert(truthy bool, msg string) error {
+func Assert(truthy bool, msg string, t *testing.T) {
 	if !truthy {
-		return fmt.Errorf("Assert failed: %s", msg)
+		t.Errorf("Assert failed: %s", msg)
 	}
-
-	return nil
 }
 
 // Colored printf, if a is empty acts like println
-func CPrintf(c Color, format string, a ...interface{}) {
+func CPrintf(c Color, format string, a ...any) {
 	if a == nil {
 		fmt.Fprintln(os.Stdout, string(c)+format+string(Reset))
 	} else {
-		fmt.Fprintf(os.Stdout, string(c)+format+string(Reset), a)
+		fmt.Fprintf(os.Stdout, string(c)+format+string(Reset), a...)
 	}
+}
+
+func Wait(wg *sync.WaitGroup, funcs ...func()) {
+	wg.Add(len(funcs))
+
+	for _, f := range funcs {
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Panic in goroutine: %v", r)
+				}
+			}()
+
+			f()
+		}()
+	}
+
+	wg.Wait()
+}
+
+func GetDigitsFromString(s string) []string {
+	return regexp.MustCompile(`\d+`).FindAllString(s, 1)
+}
+
+func CaptureStdout(f func()) ([]byte, error) {
+	temp, err := os.CreateTemp("/tmp", "output-*.txt")
+	defer os.Remove(temp.Name())
+	if err != nil {
+		return []byte{}, fmt.Errorf("Err while creating temp file: %v", err)
+	}
+
+	stdout := os.Stdout
+	os.Stdout = temp
+
+	wg := sync.WaitGroup{}
+
+	Wait(&wg,
+		func() {
+			f()
+		},
+	)
+
+	os.Stdout = stdout
+
+	temp.Close()
+
+	out, err := os.ReadFile(temp.Name())
+	if err != nil {
+		return []byte{}, fmt.Errorf("cant read file: %v", err)
+	}
+
+	return out, nil
+}
+
+func AwaitSIGINTFunc(f func()) {
+	s := make(chan os.Signal, 1)
+	signal.Notify(s, os.Interrupt)
+
+	go func() {
+		<-s
+		f()
+		fmt.Println("\nExiting")
+		os.Exit(0)
+	}()
+}
+
+func AwaitSIGINT() {
+	s := make(chan os.Signal, 1)
+	signal.Notify(s, os.Interrupt)
+
+	go func() {
+		<-s
+		fmt.Println("\nExiting")
+
+		os.Exit(0)
+	}()
 }
