@@ -1,0 +1,7 @@
+/*
+Base types Client(Name, other info?)
+message(Sender, cmd, Topic, payload)
+*/
+service	Broker {
+	rpc Serve
+}
