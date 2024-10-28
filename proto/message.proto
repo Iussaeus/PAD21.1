@@ -1,16 +1,50 @@
+// proto/message.proto
 syntax = "proto3";
 
 package broker;
 
+option go_package = "./proto";
+
 service BrokerService {
-rpc SendMessage(MessageRequest) returns (MessageResponse);
+  rpc SendMessage(MessageRequest) returns (MessageResponse);
+  rpc Subscribe(SubscribeRequest) returns (stream Message);
+  rpc GetTopics(TopicsRequest) returns (TopicsResponse);
+  rpc CreateTopic(TopicRequest) returns (TopicResponse);
+  rpc DeleteTopic(TopicRequest) returns (TopicResponse);
 }
 
 message MessageRequest {
-string sender = 1;
-string message = 2;
+  string sender = 1;
+  string topic = 2;
+  string message = 3;
 }
 
 message MessageResponse {
-string confirmation = 1;
+  string confirmation = 1;
+}
+
+message SubscribeRequest {
+  string clientId = 1;
+  string topic = 2;
+}
+
+message Message {
+  string sender = 1;
+  string topic = 2;
+  string content = 3;
+  int64 timestamp = 4;
+}
+
+message TopicsRequest {}
+
+message TopicsResponse {
+  repeated string topics = 1;
+}
+
+message TopicRequest {
+  string topic = 1;
+}
+
+message TopicResponse {
+  string status = 1;
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"pad/broker_grpc"
 	"pad/broker_tcp"
@@ -26,7 +27,7 @@ func main() {
 			broker_tcp.Run()
 		case "client":
 			if len(os.Args) == 3 {
-				client_tcp.Run("","")
+				client_tcp.Run("", "")
 				return
 			}
 
@@ -81,13 +82,59 @@ func main() {
 	case "grpc":
 		switch whichApp {
 		case "broker":
-			brokerGrpc.Run()
+			broker_grpc.Run()
 		case "client":
-			clientGrpc.Run()
+			if len(os.Args) == 3 {
+				fmt.Println("Please provide a client name")
+				return
+			}
+
+			name := os.Args[3]
+			client := client_grpc.NewClientGRPC(name)
+			defer client.Close()
+
+			if len(os.Args) < 5 {
+				fmt.Println("Please provide a command: publish, subscribe, topics, newtopic, delete")
+				return
+			}
+
+			command := os.Args[4]
+			args := os.Args[5:]
+
+			var topic, payload string
+			if len(args) > 0 {
+				topic = args[0]
+				if len(args) > 1 {
+					payload = args[1]
+				}
+			}
+
+			switch command {
+			case "publish":
+				if err := client.Publish(payload, topic); err != nil {
+					log.Fatalf("Error publishing: %v", err)
+				}
+			case "subscribe":
+				if err := client.Subscribe(topic); err != nil {
+					log.Fatalf("Error subscribing: %v", err)
+				}
+			case "topics":
+				if err := client.Topics(); err != nil {
+					log.Fatalf("Error getting topics: %v", err)
+				}
+			case "newtopic":
+				if err := client.NewTopic(topic); err != nil {
+					log.Fatalf("Error creating topic: %v", err)
+				}
+			case "delete":
+				if err := client.DeleteTopic(topic); err != nil {
+					log.Fatalf("Error deleting topic: %v", err)
+				}
+			default:
+				fmt.Println("Unknown command")
+			}
 		default:
 			fmt.Println("Invalid gRPC application. Choose 'broker' or 'client'.")
 		}
-	default:
-		fmt.Println("Usage: go run pad [tcp|grpc] [broker|client]")
 	}
 }
