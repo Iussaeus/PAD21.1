@@ -3,12 +3,12 @@ package client_grpc
 import (
 	"context"
 	"fmt"
+	"google.golang.org/grpc"
 	"io"
 	"log"
+	"pad/proto"
+	pb "pad/proto"
 	"sync"
-
-	"google.golang.org/grpc"
-	pb "your-project/proto"
 )
 
 type ClientGRPC struct {
@@ -32,7 +32,7 @@ func NewClientGRPC(id string) *ClientGRPC {
 }
 
 func (c *ClientGRPC) Publish(message, topic string) error {
-	req := &pb.MessageRequest{
+	req := &proto.MessageRequest{
 		Sender:  c.id,
 		Topic:   topic,
 		Message: message,
@@ -43,7 +43,7 @@ func (c *ClientGRPC) Publish(message, topic string) error {
 }
 
 func (c *ClientGRPC) Subscribe(topic string) error {
-	stream, err := c.client.Subscribe(context.Background(), &pb.SubscribeRequest{
+	stream, err := c.client.Subscribe(context.Background(), &proto.SubscribeRequest{
 		ClientId: c.id,
 		Topic:    topic,
 	})
@@ -65,7 +65,7 @@ func (c *ClientGRPC) Subscribe(topic string) error {
 }
 
 func (c *ClientGRPC) Topics() error {
-	resp, err := c.client.GetTopics(context.Background(), &pb.TopicsRequest{})
+	resp, err := c.client.GetTopics(context.Background(), &proto.TopicsRequest{})
 	if err != nil {
 		return err
 	}
@@ -78,12 +78,12 @@ func (c *ClientGRPC) Topics() error {
 }
 
 func (c *ClientGRPC) NewTopic(topic string) error {
-	_, err := c.client.CreateTopic(context.Background(), &pb.TopicRequest{Topic: topic})
+	_, err := c.client.CreateTopic(context.Background(), &proto.TopicRequest{Topic: topic})
 	return err
 }
 
 func (c *ClientGRPC) DeleteTopic(topic string) error {
-	_, err := c.client.DeleteTopic(context.Background(), &pb.TopicRequest{Topic: topic})
+	_, err := c.client.DeleteTopic(context.Background(), &proto.TopicRequest{Topic: topic})
 	return err
 }
 
@@ -91,4 +91,9 @@ func (c *ClientGRPC) Close() {
 	if c.conn != nil {
 		c.conn.Close()
 	}
+}
+
+func (c *ClientGRPC) SendMessage(req *proto.MessageRequest) error {
+	_, err := c.client.SendMessage(context.Background(), req)
+	return err
 }

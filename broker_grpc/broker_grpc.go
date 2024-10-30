@@ -6,17 +6,18 @@ import (
 	"google.golang.org/grpc/status"
 	"log"
 	"net"
+	"pad/proto"
 	"sync"
 	"time"
 
-	//pb "pad/message_tcp/"
 	"google.golang.org/grpc"
+	pb "pad/proto"
 )
 
 type Subscriber struct {
 	id          string
 	topics      map[string]bool
-	messageChan chan *pb.Message
+	messageChan chan *proto.Message
 }
 
 type BrokerGRPC struct {
@@ -34,7 +35,7 @@ func NewBrokerGRPC() *BrokerGRPC {
 	}
 }
 
-func (b *BrokerGRPC) SendMessage(ctx context.Context, req *pb.MessageRequest) (*pb.MessageResponse, error) {
+func (b *BrokerGRPC) SendMessage(ctx context.Context, req *proto.MessageRequest) (*proto.MessageResponse, error) {
 	b.mutex.RLock()
 	if !b.topics[req.Topic] {
 		b.mutex.RUnlock()
@@ -42,7 +43,7 @@ func (b *BrokerGRPC) SendMessage(ctx context.Context, req *pb.MessageRequest) (*
 	}
 	b.mutex.RUnlock()
 
-	message := &pb.Message{
+	message := &proto.Message{
 		Sender:    req.Sender,
 		Topic:     req.Topic,
 		Content:   req.Message,
@@ -63,10 +64,10 @@ func (b *BrokerGRPC) SendMessage(ctx context.Context, req *pb.MessageRequest) (*
 		}
 	}
 
-	return &pb.MessageResponse{Confirmation: "Message sent"}, nil
+	return &proto.MessageResponse{Confirmation: "Message sent"}, nil
 }
 
-func (b *BrokerGRPC) Subscribe(req *pb.SubscribeRequest, stream pb.BrokerService_SubscribeServer) error {
+func (b *BrokerGRPC) Subscribe(req *proto.SubscribeRequest, stream pb.BrokerService_SubscribeServer) error {
 	b.mutex.Lock()
 	if !b.topics[req.Topic] {
 		b.mutex.Unlock()
@@ -78,7 +79,7 @@ func (b *BrokerGRPC) Subscribe(req *pb.SubscribeRequest, stream pb.BrokerService
 		subscriber = &Subscriber{
 			id:          req.ClientId,
 			topics:      make(map[string]bool),
-			messageChan: make(chan *pb.Message, 100),
+			messageChan: make(chan *proto.Message, 100),
 		}
 		b.subscribers[req.ClientId] = subscriber
 	}
@@ -107,7 +108,7 @@ func (b *BrokerGRPC) Subscribe(req *pb.SubscribeRequest, stream pb.BrokerService
 	}
 }
 
-func (b *BrokerGRPC) GetTopics(ctx context.Context, req *pb.TopicsRequest) (*pb.TopicsResponse, error) {
+func (b *BrokerGRPC) GetTopics(ctx context.Context, req *proto.TopicsRequest) (*proto.TopicsResponse, error) {
 	b.mutex.RLock()
 	defer b.mutex.RUnlock()
 
@@ -116,10 +117,10 @@ func (b *BrokerGRPC) GetTopics(ctx context.Context, req *pb.TopicsRequest) (*pb.
 		topics = append(topics, topic)
 	}
 
-	return &pb.TopicsResponse{Topics: topics}, nil
+	return &proto.TopicsResponse{Topics: topics}, nil
 }
 
-func (b *BrokerGRPC) CreateTopic(ctx context.Context, req *pb.TopicRequest) (*pb.TopicResponse, error) {
+func (b *BrokerGRPC) CreateTopic(ctx context.Context, req *proto.TopicRequest) (*proto.TopicResponse, error) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 
@@ -128,10 +129,10 @@ func (b *BrokerGRPC) CreateTopic(ctx context.Context, req *pb.TopicRequest) (*pb
 	}
 
 	b.topics[req.Topic] = true
-	return &pb.TopicResponse{Status: "Topic created"}, nil
+	return &proto.TopicResponse{Status: "Topic created"}, nil
 }
 
-func (b *BrokerGRPC) DeleteTopic(ctx context.Context, req *pb.TopicRequest) (*pb.TopicResponse, error) {
+func (b *BrokerGRPC) DeleteTopic(ctx context.Context, req *proto.TopicRequest) (*proto.TopicResponse, error) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 
@@ -140,7 +141,7 @@ func (b *BrokerGRPC) DeleteTopic(ctx context.Context, req *pb.TopicRequest) (*pb
 	}
 
 	delete(b.topics, req.Topic)
-	return &pb.TopicResponse{Status: "Topic deleted"}, nil
+	return &proto.TopicResponse{Status: "Topic deleted"}, nil
 }
 
 func Run() {
