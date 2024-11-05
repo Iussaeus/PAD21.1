@@ -9,6 +9,7 @@ import (
 	"pad/proto"
 	pb "pad/proto"
 	"sync"
+	"time"
 )
 
 type ClientGRPC struct {
@@ -50,17 +51,25 @@ func (c *ClientGRPC) Subscribe(topic string) error {
 	if err != nil {
 		return fmt.Errorf("failed to subscribe: %v", err)
 	}
-
+	c.ReadMessage(stream)
+	return nil
+}
+func (c *ClientGRPC) ReadMessage(stream pb.BrokerService_SubscribeClient) {
 	for {
 		message, err := stream.Recv()
 		if err == io.EOF {
-			return nil
+			log.Println("Stream closed by server.")
+			return // End the loop when the server closes the stream.
 		}
 		if err != nil {
-			return fmt.Errorf("error receiving message: %v", err)
+			log.Printf("Error receiving message: %v", err)
+			return
 		}
 
-		log.Printf("[%s] %s: %s", message.Topic, message.Sender, message.Content)
+		// Only log non-empty messages
+		if message != nil && message.Topic != "" && message.Content != "" {
+			log.Printf("[%s] %s: %s", message.Topic, message.Sender, message.Content)
+		}
 	}
 }
 
@@ -96,4 +105,73 @@ func (c *ClientGRPC) Close() {
 func (c *ClientGRPC) SendMessage(req *proto.MessageRequest) error {
 	_, err := c.client.SendMessage(context.Background(), req)
 	return err
+}
+
+func InitNewClientFunc(name, s string, ch chan struct{}, f func(c *ClientGRPC)) {
+	defer close(ch)
+	f(NewClientGRPC(name))
+}
+
+func RunGRPCClients() {
+	fmt.Println("Started GRPC Client")
+
+	ch := make(chan struct{})
+
+	// Create first client
+	go InitNewClientFunc("Sanea", "", ch, func(c *ClientGRPC) {
+		//c.NewTopic("dsa")
+		//time.Sleep(300 * time.Millisecond)
+		//c.Subscribe("dsa")
+		//time.Sleep(500 * time.Millisecond)
+		//c.Topics()
+		//time.Sleep(600 * time.Millisecond)
+		c.Publish("Hello from Alex", "dsa")
+		time.Sleep(600 * time.Millisecond)
+	})
+
+	// Create additional clients
+	go func() {
+		c := NewClientGRPC("Test")
+		InitClientFunc(c, "", ch, func(c *ClientGRPC) {
+			//time.Sleep(500 * time.Millisecond)
+			//c.Subscribe("dsa")
+			//time.Sleep(500 * time.Millisecond)
+			//c.Topics()
+			//time.Sleep(600 * time.Millisecond)
+			c.Publish("Message 1 from Test", "dsa")
+			time.Sleep(600 * time.Millisecond)
+		})
+	}()
+
+	go func() {
+		c := NewClientGRPC("Test2")
+		InitClientFunc(c, "", ch, func(c *ClientGRPC) {
+			//time.Sleep(500 * time.Millisecond)
+			//c.Subscribe("dsa")
+			//time.Sleep(500 * time.Millisecond)
+			//c.Topics()
+			//time.Sleep(600 * time.Millisecond)
+			c.Publish("Message 2 from Test2", "dsa")
+			time.Sleep(600 * time.Millisecond)
+		})
+	}()
+
+	go func() {
+		c := NewClientGRPC("Test3")
+		InitClientFunc(c, "", ch, func(c *ClientGRPC) {
+
+			// Publish a message
+			if err := c.Publish("Message 3 from Test3", "dsa"); err != nil {
+				log.Printf("Error publishing message: %v", err)
+				return
+			}
+		})
+	}()
+
+	<-ch
+}
+
+func InitClientFunc(c *ClientGRPC, s string, ch chan struct{}, f func(c *ClientGRPC)) {
+	defer close(ch)
+	f(c)
 }

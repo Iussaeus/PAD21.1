@@ -90,6 +90,11 @@ func main() {
 			}
 
 			name := os.Args[3]
+			if name == "Run" {
+				// Run multiple clients concurrently
+				client_grpc.RunGRPCClients()
+				return
+			}
 			client := client_grpc.NewClientGRPC(name)
 			defer client.Close()
 

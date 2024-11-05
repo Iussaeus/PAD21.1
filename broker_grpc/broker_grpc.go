@@ -18,6 +18,8 @@ type Subscriber struct {
 	id          string
 	topics      map[string]bool
 	messageChan chan *proto.Message
+	closed      bool
+	mutex       sync.Mutex
 }
 
 type BrokerGRPC struct {
@@ -50,8 +52,8 @@ func (b *BrokerGRPC) SendMessage(ctx context.Context, req *proto.MessageRequest)
 		Timestamp: time.Now().Unix(),
 	}
 
-	b.mutex.RLock()
-	defer b.mutex.RUnlock()
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
 
 	for _, subscriber := range b.subscribers {
 		if subscriber.topics[req.Topic] {
@@ -59,8 +61,9 @@ func (b *BrokerGRPC) SendMessage(ctx context.Context, req *proto.MessageRequest)
 			case subscriber.messageChan <- message:
 				log.Printf("Message sent to subscriber %s on topic %s", subscriber.id, req.Topic)
 			default:
-				log.Printf("Failed to send message to subscriber %s: channel full", subscriber.id)
+				log.Printf("Subscriber %s's channel is full; consider increasing the buffer size or processing messages faster", subscriber.id)
 			}
+
 		}
 	}
 
@@ -68,6 +71,7 @@ func (b *BrokerGRPC) SendMessage(ctx context.Context, req *proto.MessageRequest)
 }
 
 func (b *BrokerGRPC) Subscribe(req *proto.SubscribeRequest, stream pb.BrokerService_SubscribeServer) error {
+	log.Printf("Client %s subscribed to topic %s", req.ClientId, req.Topic)
 	b.mutex.Lock()
 	if !b.topics[req.Topic] {
 		b.mutex.Unlock()
@@ -86,19 +90,25 @@ func (b *BrokerGRPC) Subscribe(req *proto.SubscribeRequest, stream pb.BrokerServ
 	subscriber.topics[req.Topic] = true
 	b.mutex.Unlock()
 
+	var once sync.Once
 	defer func() {
 		b.mutex.Lock()
 		delete(subscriber.topics, req.Topic)
 		if len(subscriber.topics) == 0 {
 			delete(b.subscribers, req.ClientId)
-			close(subscriber.messageChan)
+			once.Do(func() {
+				close(subscriber.messageChan)
+			})
 		}
 		b.mutex.Unlock()
 	}()
 
 	for {
 		select {
-		case msg := <-subscriber.messageChan:
+		case msg, ok := <-subscriber.messageChan:
+			if !ok {
+				return nil
+			}
 			if err := stream.Send(msg); err != nil {
 				return err
 			}
@@ -109,8 +119,8 @@ func (b *BrokerGRPC) Subscribe(req *proto.SubscribeRequest, stream pb.BrokerServ
 }
 
 func (b *BrokerGRPC) GetTopics(ctx context.Context, req *proto.TopicsRequest) (*proto.TopicsResponse, error) {
-	b.mutex.RLock()
-	defer b.mutex.RUnlock()
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
 
 	topics := make([]string, 0, len(b.topics))
 	for topic := range b.topics {
@@ -135,7 +145,6 @@ func (b *BrokerGRPC) CreateTopic(ctx context.Context, req *proto.TopicRequest) (
 func (b *BrokerGRPC) DeleteTopic(ctx context.Context, req *proto.TopicRequest) (*proto.TopicResponse, error) {
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
-
 	if !b.topics[req.Topic] {
 		return nil, status.Errorf(codes.NotFound, "Topic does not exist")
 	}
