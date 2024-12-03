@@ -39,7 +39,7 @@ func NewBrokerGRPC() *BrokerGRPC {
 
 func (b *BrokerGRPC) SendMessage(ctx context.Context, req *proto.MessageRequest) (*proto.MessageResponse, error) {
 	b.mutex.RLock()
-	if !b.topics[req.Topic] {
+	if _, ok := b.topics[req.Topic]; !ok {
 		b.mutex.RUnlock()
 		return nil, status.Errorf(codes.NotFound, "Topic does not exist")
 	}
