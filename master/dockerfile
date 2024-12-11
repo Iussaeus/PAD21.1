@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y ca-certificates
 RUN apt-get update && apt-get install -y golang && rm -rf /var/lib/apt/lists/*
 
 # Copy application files
-COPY ../app /app
+COPY ./app /app
 
 # Set working directory for the Go application
 WORKDIR /app
