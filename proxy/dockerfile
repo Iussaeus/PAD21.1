@@ -1,0 +1,15 @@
+FROM golang:1.23.0
+
+# Install Go
+RUN apt-get update && apt-get install -y golang && rm -rf /var/lib/apt/lists/*
+# Install Go
+RUN apt-get update && apt-get install -y redis-server
+
+COPY ./app /app 
+
+WORKDIR /app
+
+# Expose the PostgreSQL port and application port
+EXPOSE 8080
+
+CMD ["sh", "-c", "redis-server & go run ."]

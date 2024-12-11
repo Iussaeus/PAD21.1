@@ -1,4 +1,4 @@
-package dataWarehouse
+package main
 
 import (
 	"database/sql"
@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -17,11 +18,32 @@ type DWNode struct {
 }
 
 func NewDWNode(connStr string) *DWNode {
-	db, err := sql.Open("postgres", connStr)
-	if err != nil {
-		log.Fatalf("Error connecting to the database: %v", err)
+	var db *sql.DB
+	var err error
+
+	// Retry logic until DB is available
+	for {
+		// Try to connect to the database
+		db, err = sql.Open("postgres", connStr)
+		if err != nil {
+			log.Printf("Error connecting to the database: %v. Retrying...", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// Try to ping the database to ensure it's reachable
+		err = db.Ping()
+		if err != nil {
+			log.Printf("Database not ready: %v. Retrying...", err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		log.Println("Database is ready!")
+		break
 	}
 
+	// Create the table if it doesn't exist
 	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS data (
 		key TEXT PRIMARY KEY,
 		value TEXT
@@ -32,7 +54,6 @@ func NewDWNode(connStr string) *DWNode {
 
 	return &DWNode{DB: db}
 }
-
 func (dw *DWNode) WriteHandler(w http.ResponseWriter, r *http.Request) {
 	var data struct {
 		Key   string `json:"key" xml:"key"`
@@ -119,3 +140,6 @@ func Run(port string, connStr string) {
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
+func main() {
+	Run("8081", "postgres://postgres:masterpassword@master:5432/mydatabase?sslmode=disable")
+}

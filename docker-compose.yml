@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  dw1:
+    build: ./master
+    container_name: master
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: masterpassword
+      POSTGRES_DB: mydatabase
+    ports:
+      - "5434:5432"
+      - "8081:8081"
+    networks:
+      - app_network
+
+  dw2:
+    build: ./slave
+    container_name: slave
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: slavepassword
+      POSTGRES_DB: mydatabase
+    ports:
+      - "5435:5432"  # Expose slave on a different port to avoid conflict with master
+      - "8082:8082"
+    networks:
+      - app_network
+
+  proxy:
+    build: ./proxy
+    container_name: proxy
+    environment:
+      - TARGET=http://backend:8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      - dw1
+      - dw2
+    networks:
+      - app_network
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  pg_master_data:
+  pg_slave_data:
+

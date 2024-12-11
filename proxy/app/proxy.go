@@ -1,4 +1,4 @@
-package proxy
+package main
 
 import (
 	"bytes"
@@ -101,13 +101,13 @@ func (p *Proxy) getNextTarget() *url.URL {
 }
 
 func Run(port string, nodePorts []string) {
-	if len(nodePorts) == 0 {
-		nodePorts = []string{"http://localhost:8081", "http://localhost:8082"}
-	} else {
-		for idx, nPort := range nodePorts {
-			nodePorts[idx] = "http://localhost:" + nPort
-		}
-	}
+	// if len(nodePorts) == 0 {
+	// 	nodePorts = []string{"http://localhost:8081", "http://localhost:8082"}
+	// } else {
+	// 	for idx, nPort := range nodePorts {
+	// 		nodePorts[idx] = "http://localhost:" + nPort
+	// 	}
+	// }
 
 	proxy := NewProxy(nodePorts, "localhost:6379")
 
@@ -115,3 +115,6 @@ func Run(port string, nodePorts []string) {
 	log.Fatal(http.ListenAndServe(":"+port, proxy))
 }
 
+func main() {
+	Run("8080", []string{"http://dw1:8081", "http://dw2:8082"})
+}
